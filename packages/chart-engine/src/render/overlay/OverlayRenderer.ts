@@ -22,12 +22,29 @@ export interface CrosshairState {
   paneId: string;
 }
 
+/**
+ * A horizontal level drawn across the main pane with a label in the price
+ * gutter — position entry prices, resting order levels, alert levels. The
+ * chart knows nothing about what a line means; the app supplies text and colour.
+ */
+export interface PriceLine {
+  id: string;
+  price: number;
+  color: string;
+  /** Short text for the price-axis gutter, e.g. "LONG 10" or "SL". */
+  label: string;
+  style?: "solid" | "dashed";
+  /** Draggable lines can be moved with the pointer; the chart reports the new price and the app decides what it means. */
+  draggable?: boolean;
+}
+
 export interface OverlayRenderParams {
   store: CandleStore;
   viewport: Viewport;
   theme: ChartTheme;
   timeframe: Timeframe;
   indicatorLines: IndicatorLineSpec[];
+  priceLines: PriceLine[];
   crosshair: CrosshairState | null;
   drawings: DrawingObject[];
   activeDrawingPreview: DrawingObject | null;
@@ -62,15 +79,21 @@ export class OverlayRenderer {
 
     this.drawPanesGridAndAxes(p, plotWidth, plotHeight);
     this.drawIndicatorLines(p);
+    this.drawPriceLines(p, plotWidth);
     for (const d of p.drawings) renderDrawing(ctx, d, p.viewport, p.theme);
     if (p.activeDrawingPreview) renderDrawing(ctx, p.activeDrawingPreview, p.viewport, p.theme);
-    if (p.crosshair) this.drawCrosshair(p, plotWidth, plotHeight);
+    if (p.crosshair) this.drawCrosshairLines(p, plotWidth, plotHeight);
 
-    // Axis gutter backgrounds, painted last so they sit above the plot content edge.
+    // Axis gutter backgrounds, painted over the plot content edge.
     ctx.fillStyle = p.theme.background;
     ctx.fillRect(plotWidth, 0, PRICE_AXIS_WIDTH, this.cssHeight);
     ctx.fillRect(0, plotHeight, plotWidth, TIME_AXIS_HEIGHT);
     this.drawAxisLabelsOverGutters(p, plotWidth, plotHeight);
+
+    // Everything that writes *into* a gutter has to come after those fills,
+    // or it gets painted over by them.
+    this.drawPriceLineLabels(p, plotWidth, plotHeight);
+    if (p.crosshair) this.drawCrosshairLabels(p, plotWidth, plotHeight);
   }
 
   private drawPanesGridAndAxes(p: OverlayRenderParams, plotWidth: number, plotHeight: number): void {
@@ -197,7 +220,81 @@ export class OverlayRenderer {
     }
   }
 
-  private drawCrosshair(p: OverlayRenderParams, plotWidth: number, plotHeight: number): void {
+  /** Horizontal levels on the main pane. Drawn under the drawings and crosshair. */
+  private drawPriceLines(p: OverlayRenderParams, plotWidth: number): void {
+    if (p.priceLines.length === 0) return;
+    const ctx = this.ctx;
+    const mainRect = p.viewport.getPaneRect("main");
+    if (!mainRect) return;
+
+    ctx.lineWidth = 1;
+    ctx.font = `10px ${p.theme.fontFamily}`;
+    ctx.textBaseline = "middle";
+
+    for (const line of p.priceLines) {
+      const y = p.viewport.priceToY(line.price, "main");
+      if (y < mainRect.top || y > mainRect.top + mainRect.height) continue;
+
+      ctx.strokeStyle = line.color;
+      ctx.setLineDash(line.style === "dashed" ? [5, 4] : []);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(plotWidth, y);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // The descriptive part of the label sits inside the plot: the price gutter
+      // is only 68px wide and would clip anything longer than the price itself.
+      const chipWidth = ctx.measureText(line.label).width + 10;
+      ctx.fillStyle = line.color;
+      ctx.fillRect(0, y - 8, chipWidth, 16);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(line.label, 5, y);
+    }
+    ctx.setLineDash([]);
+  }
+
+  private drawPriceLineLabels(p: OverlayRenderParams, plotWidth: number, plotHeight: number): void {
+    if (p.priceLines.length === 0) return;
+    const ctx = this.ctx;
+    const mainRect = p.viewport.getPaneRect("main");
+    if (!mainRect) return;
+
+    ctx.font = `10px ${p.theme.fontFamily}`;
+    ctx.textBaseline = "middle";
+    const top = mainRect.top;
+    const bottom = mainRect.top + mainRect.height;
+    const LABEL_HEIGHT = 17;
+    let stackedAbove = 0;
+    let stackedBelow = 0;
+
+    for (const line of p.priceLines) {
+      const y = p.viewport.priceToY(line.price, "main");
+      const above = y < top;
+      const below = y > bottom;
+      // A level outside the visible range still matters — a stop-loss you
+      // cannot see is exactly the one you want to know about — so its label is
+      // pinned to the edge it went past, dimmed, with an arrow. Several levels
+      // past the same edge stack instead of overprinting each other.
+      const labelY = above
+        ? top + 9 + stackedAbove++ * LABEL_HEIGHT
+        : below
+          ? bottom - 9 - stackedBelow++ * LABEL_HEIGHT
+          : y;
+      const arrow = above ? " ↑" : below ? " ↓" : "";
+
+      ctx.globalAlpha = arrow ? 0.7 : 1;
+      const h = 16;
+      ctx.fillStyle = line.color;
+      ctx.fillRect(plotWidth, labelY - h / 2, PRICE_AXIS_WIDTH, h);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText(`${formatPrice(line.price)}${arrow}`, plotWidth + 4, labelY);
+      ctx.globalAlpha = 1;
+    }
+    void plotHeight;
+  }
+
+  private drawCrosshairLines(p: OverlayRenderParams, plotWidth: number, plotHeight: number): void {
     const ctx = this.ctx;
     const { theme, crosshair } = p;
     if (!crosshair) return;
@@ -210,8 +307,7 @@ export class OverlayRenderer {
     ctx.lineTo(crosshair.x, plotHeight);
     ctx.stroke();
 
-    const paneRect = p.viewport.getPaneRect(crosshair.paneId);
-    if (paneRect) {
+    if (p.viewport.getPaneRect(crosshair.paneId)) {
       ctx.beginPath();
       ctx.moveTo(0, crosshair.y);
       ctx.lineTo(plotWidth, crosshair.y);
@@ -219,18 +315,23 @@ export class OverlayRenderer {
     }
     ctx.setLineDash([]);
 
-    if (paneRect) {
+    const bar = p.store.barAt(Math.round(p.viewport.xToIndex(crosshair.x)));
+    if (bar) this.drawTooltip(crosshair.x, bar, p);
+  }
+
+  private drawCrosshairLabels(p: OverlayRenderParams, plotWidth: number, plotHeight: number): void {
+    const { theme, crosshair } = p;
+    if (!crosshair) return;
+
+    if (p.viewport.getPaneRect(crosshair.paneId)) {
       const price = p.viewport.yToPrice(crosshair.y, crosshair.paneId);
       const label = crosshair.paneId === "volume" ? formatVolume(price) : formatPrice(price);
       this.drawLabelBox(plotWidth, crosshair.y, label, theme, "right");
     }
 
-    const index = Math.round(p.viewport.xToIndex(crosshair.x));
-    const bar = p.store.barAt(index);
+    const bar = p.store.barAt(Math.round(p.viewport.xToIndex(crosshair.x)));
     if (bar) {
-      const timeLabel = formatTimeForTimeframe(bar.time, p.timeframe);
-      this.drawLabelBox(crosshair.x, plotHeight, timeLabel, theme, "bottom");
-      this.drawTooltip(crosshair.x, bar, p);
+      this.drawLabelBox(crosshair.x, plotHeight, formatTimeForTimeframe(bar.time, p.timeframe), theme, "bottom");
     }
   }
 

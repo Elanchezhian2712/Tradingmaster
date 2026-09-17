@@ -10,7 +10,7 @@ Canvas2D chart renderer, an incremental (not full-recompute) indicator
 engine, and a provider-agnostic mock market-data layer so the whole thing
 runs and benchmarks with zero external dependencies.
 
-## Status: Phase 1 (chart engine) complete and verified
+## Status: Phase 2 (chart engine + paper trading) complete and verified
 
 - Candlestick + volume rendering, crosshair, tooltip, pan/zoom (drag +
   mouse wheel), dark/light theme, all 10 timeframes (1m → 1M), responsive
@@ -23,9 +23,16 @@ runs and benchmarks with zero external dependencies.
   incremental updates, verified against full recompute by unit test.
 - 12 drawing tools (trend line, ray, rectangle, channel, Fibonacci
   retracement/extension, text, arrow, price/date range, ...).
+- Paper trading: MARKET / LIMIT / SL / SL-M orders, bracket orders
+  (stop-loss + target, one-cancels-other), MIS/CNC/NRML products with
+  intraday auto-square-off at the session close, netted positions with live
+  mark-to-market, a trade log, and funds/margin tracking. Position and order
+  levels are drawn on the chart, and a resting order can be modified by
+  dragging its line. Simulated fills against the mock feed — no broker, no
+  real order ever sent.
 - A working FastAPI backend (auth, watchlists, chart layouts, user
   preferences) backed by real PostgreSQL, with 14 passing tests.
-- 30 frontend tests + 14 backend tests, all green; the app was also driven
+- 93 frontend tests + 14 backend tests, all green; the app was also driven
   end-to-end in a real (headless) browser to catch what unit tests can't —
   see `docs/TESTING.md`.
 
@@ -62,6 +69,7 @@ apps/web/                   React + Vite UI shell — no chart rendering happens
 packages/chart-engine/      WebGL2 + Canvas2D chart core (framework-agnostic)
 packages/indicators/        Indicator math: full-compute + incremental update
 packages/market-data/       Provider-agnostic types + mock NSE-hours-aware provider
+packages/paper-trading/     Simulated order book, positions, trades and P&L
 services/api/               FastAPI: auth, watchlists, layouts, preferences
 docs/                        Architecture, API, DB schema, WebSocket protocol,
                               benchmarks, testing, deployment, future work
@@ -73,6 +81,7 @@ docker-compose.yml           Postgres + Redis + API
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — why it's built this way
 - [`docs/DATABASE.md`](docs/DATABASE.md) — schema
 - [`docs/API.md`](docs/API.md) — REST endpoints (also live at `/docs` on the running API)
+- [`docs/PAPER_TRADING.md`](docs/PAPER_TRADING.md) — order types, fill semantics, funds
 - [`docs/WEBSOCKET_PROTOCOL.md`](docs/WEBSOCKET_PROTOCOL.md) — market-data message protocol
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — measured performance numbers
 - [`docs/TESTING.md`](docs/TESTING.md) — how to run both test suites
@@ -87,6 +96,7 @@ docker-compose.yml           Postgres + Redis + API
    imperative class React mounts once.
 3. No fabricated data presented as real: the mock provider is clearly
    named and documented as mock; no F&O/options/market-breadth field is
-   invented where no real data source exists yet.
+   invented where no real data source exists yet; paper-trading charges
+   default to zero rather than guessing a broker's rate card.
 4. Every "it's fast" or "it works" claim in `docs/` is backed by a test or
    a measured benchmark run, not an assertion in a comment.

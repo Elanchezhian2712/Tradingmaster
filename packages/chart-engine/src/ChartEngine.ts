@@ -4,7 +4,8 @@ import { DrawingManager, generateDrawingId } from "./drawings/DrawingManager";
 import { DrawingObject, DrawingPoint, DrawingType, POINTS_REQUIRED } from "./drawings/types";
 import { InteractionController } from "./interaction/InteractionController";
 import { PerfMonitor, PerfSnapshot } from "./perf/PerfMonitor";
-import { CrosshairState, IndicatorLineSpec, OverlayRenderer } from "./render/overlay/OverlayRenderer";
+import { CrosshairState, IndicatorLineSpec, OverlayRenderer, PriceLine } from "./render/overlay/OverlayRenderer";
+import { findDraggablePriceLine } from "./render/overlay/priceLineHitTest";
 import { WebGLCandleRenderer } from "./render/webgl/WebGLCandleRenderer";
 import { ChartTheme, ThemeName, resolveTheme } from "./theme";
 import { PaneSpec } from "./viewport/PaneLayout";
@@ -26,9 +27,13 @@ type ChartEventMap = {
   needMoreHistory: undefined;
   /** Fires when an armed drawing tool finishes placing its shape and auto-disarms, so the UI can un-highlight it. */
   drawingToolDeactivated: undefined;
+  /** A draggable price line was released at a new price. The chart does not apply it — the app decides what moving that line means. */
+  priceLineMoved: { id: string; price: number };
 };
 
 const DRAG_CLICK_THRESHOLD_PX = 4;
+/** How close the pointer has to be, vertically, to grab a price line. */
+const PRICE_LINE_GRAB_PX = 5;
 
 type Listener<T> = (payload: T) => void;
 
@@ -64,6 +69,9 @@ export class ChartEngine {
   private indicatorOutputs = new Map<string, Record<string, Float64Array>>();
   private indicatorEnabled = new Map<string, boolean>();
 
+  private priceLines: PriceLine[] = [];
+  private draggedPriceLineId: string | null = null;
+
   private crosshair: CrosshairState | null = null;
   private armedDrawingType: DrawingType | null = null;
   private armedDrawingPoints: DrawingPoint[] = [];
@@ -82,6 +90,7 @@ export class ChartEngine {
     drawingsChanged: new Set(),
     needMoreHistory: new Set(),
     drawingToolDeactivated: new Set(),
+    priceLineMoved: new Set(),
   };
 
   constructor(private container: HTMLElement, options: ChartEngineOptions = {}) {
@@ -114,12 +123,21 @@ export class ChartEngine {
 
     this.interaction = new InteractionController(container, {
       onDragStart: (x, y) => {
+        const hit = this.draggablePriceLineAt(x, y);
+        if (!this.armedDrawingType && hit) {
+          this.draggedPriceLineId = hit.id;
+          return;
+        }
         if (this.armedDrawingType) {
           this.dragStartPoint = { index: this.viewport.xToIndex(x), price: this.viewport.yToPrice(y, "main") };
           this.drawingDragActive = true;
         }
       },
       onDragMove: (x, y, dx) => {
+        if (this.draggedPriceLineId) {
+          this.movePriceLinePreview(this.draggedPriceLineId, this.viewport.yToPrice(y, "main"));
+          return;
+        }
         if (this.drawingDragActive) {
           this.requestRender(); // crosshair (tracked separately below) drives the live preview shape
         } else {
@@ -128,6 +146,13 @@ export class ChartEngine {
         }
       },
       onDragEnd: (x, y) => {
+        if (this.draggedPriceLineId) {
+          const id = this.draggedPriceLineId;
+          this.draggedPriceLineId = null;
+          const line = this.priceLines.find((l) => l.id === id);
+          if (line) this.emit("priceLineMoved", { id, price: this.viewport.yToPrice(y, "main") });
+          return;
+        }
         if (!this.drawingDragActive) return;
         this.drawingDragActive = false;
         const start = this.dragStartPoint;
@@ -151,6 +176,9 @@ export class ChartEngine {
         this.requestRender();
       },
       onCrosshairMove: (x, y) => {
+        if (!this.draggedPriceLineId) {
+          container.style.cursor = !this.armedDrawingType && this.draggablePriceLineAt(x, y) ? "ns-resize" : "";
+        }
         this.crosshair = { x, y, paneId: this.paneIdAtY(y) };
         this.emitCrosshair();
         this.requestRender();
@@ -248,6 +276,40 @@ export class ChartEngine {
       specs.push({ id: config.id, weight: 1, minHeight: 70 });
     }
     return specs;
+  }
+
+  // ---- price lines ----
+
+  /**
+   * Replace the horizontal levels drawn on the main pane (position entries,
+   * resting orders, alerts). The whole set is replaced at once because the
+   * caller owns the list, and a full swap is cheaper than diffing a handful
+   * of lines.
+   */
+  setPriceLines(lines: PriceLine[]): void {
+    const dragged = this.draggedPriceLineId ? this.priceLines.find((l) => l.id === this.draggedPriceLineId) : undefined;
+    // A refresh mid-drag must not snap the line back to the price the app still
+    // has on record — the pointer is the source of truth until it is released.
+    this.priceLines = dragged ? lines.map((l) => (l.id === dragged.id ? { ...l, price: dragged.price } : l)) : lines;
+    this.requestRender();
+  }
+
+  /** The draggable price line under the pointer, if any. Only the main pane carries them. */
+  private draggablePriceLineAt(x: number, y: number): PriceLine | null {
+    if (x > this.viewport.width) return null;
+    const mainRect = this.viewport.getPaneRect("main");
+    if (!mainRect || y < mainRect.top || y > mainRect.top + mainRect.height) return null;
+
+    return findDraggablePriceLine(this.priceLines, y, (price) => this.viewport.priceToY(price, "main"), PRICE_LINE_GRAB_PX);
+  }
+
+  private movePriceLinePreview(id: string, price: number): void {
+    this.priceLines = this.priceLines.map((l) => (l.id === id ? { ...l, price } : l));
+    this.requestRender();
+  }
+
+  getPriceLines(): PriceLine[] {
+    return this.priceLines;
   }
 
   // ---- view controls ----
@@ -430,6 +492,7 @@ export class ChartEngine {
       theme: this.theme,
       timeframe: this.timeframe,
       indicatorLines,
+      priceLines: this.priceLines,
       crosshair: this.crosshair,
       drawings: this.drawingManager.list(),
       activeDrawingPreview: this.buildDrawingPreview(),

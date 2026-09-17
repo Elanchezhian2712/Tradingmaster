@@ -2,7 +2,16 @@ import { CandleBatch, MarketStatus, Quote, Timeframe } from "@trading-master/mar
 
 export type DataWorkerRequest =
   | { kind: "loadHistory"; requestId: number; symbol: string; timeframe: Timeframe; count: number }
-  | { kind: "loadMore"; requestId: number; symbol: string; timeframe: Timeframe; beforeTime: number; count: number }
+  | {
+      kind: "loadMore";
+      requestId: number;
+      symbol: string;
+      timeframe: Timeframe;
+      beforeTime: number;
+      count: number;
+      /** Price the older chunk should end at — the oldest loaded bar's open, so the seam is continuous. */
+      endPrice?: number;
+    }
   | { kind: "subscribeLive"; symbol: string; timeframe: Timeframe }
   | { kind: "unsubscribeLive"; symbol: string; timeframe: Timeframe }
   | { kind: "getQuote"; requestId: number; symbol: string }

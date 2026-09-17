@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -57,11 +57,21 @@ class Backtest(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 
 class PaperTrade(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    """A closed round-trip from the client-side paper-trading engine."""
+
     __tablename__ = "paper_trades"
+    __table_args__ = (
+        # The client generates trade ids; this keeps a re-sent batch from
+        # inserting the same trade twice without the client tracking what the
+        # server already has.
+        UniqueConstraint("user_id", "client_trade_id", name="uq_paper_trades_user_client_id"),
+    )
 
     user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False)
     strategy_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("strategies.id", ondelete="SET NULL"))
+    client_trade_id: Mapped[str | None] = mapped_column(String(64))
     symbol: Mapped[str] = mapped_column(String(32), nullable=False)
+    product: Mapped[str] = mapped_column(String(8), default="MIS", nullable=False)
     side: Mapped[str] = mapped_column(String(4), nullable=False)
     quantity: Mapped[int] = mapped_column(nullable=False)
     entry_price: Mapped[float] = mapped_column(nullable=False)
@@ -69,4 +79,25 @@ class PaperTrade(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     entry_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     exit_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     pnl: Mapped[float | None] = mapped_column()
+    charges: Mapped[float] = mapped_column(default=0.0, nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="open", nullable=False, index=True)
+
+
+class PaperBook(TimestampMixin, Base):
+    """
+    The live paper-trading book for one user: open orders, positions, cash and
+    last prices, as the client engine serialises them.
+
+    Kept as a single JSONB snapshot rather than order and position tables
+    because nothing server-side evaluates it — the client engine owns the
+    matching, and this is where it parks its state so another device can pick
+    it up. Closed trades go to `paper_trades` instead, because those are the
+    rows worth querying and reporting on.
+    """
+
+    __tablename__ = "paper_books"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    snapshot: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict)

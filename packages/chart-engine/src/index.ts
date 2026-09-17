@@ -7,4 +7,5 @@ export * from "./viewport/scale";
 export * from "./drawings/types";
 export * from "./drawings/DrawingManager";
 export * from "./perf/PerfMonitor";
-export type { IndicatorLineSpec, OverlayRenderParams, CrosshairState } from "./render/overlay/OverlayRenderer";
+export type { IndicatorLineSpec, OverlayRenderParams, CrosshairState, PriceLine } from "./render/overlay/OverlayRenderer";
+export { findDraggablePriceLine } from "./render/overlay/priceLineHitTest";

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { CandleSnapshot, Timeframe } from "@trading-master/market-data";
-import { ChartEngine, DrawingType, ScaleMode, ThemeName } from "@trading-master/chart-engine";
+import { ChartEngine, DrawingType, PriceLine, ScaleMode, ThemeName } from "@trading-master/chart-engine";
 import { IndicatorType } from "@trading-master/indicators";
 import { ChartContainer } from "./components/ChartContainer";
 import { Toolbar } from "./components/Toolbar";
@@ -12,9 +12,18 @@ import { BenchmarkPanel, BenchmarkResult } from "./components/BenchmarkPanel";
 import { DataWorkerClient } from "./workers/DataWorkerClient";
 import { IndicatorWorkerClient } from "./workers/IndicatorWorkerClient";
 import { catalogEntry } from "./indicatorCatalog";
+import { OrderTicket } from "./components/OrderTicket";
+import { TradingDock } from "./components/TradingDock";
+import { usePaperTrading } from "./usePaperTrading";
+import { useAuth } from "./useAuth";
+import { AccountPanel } from "./components/AccountPanel";
+import { Order, shouldSquareOffIntraday, istDayKey } from "@trading-master/paper-trading";
 import { ActiveIndicator, WatchlistDef, WatchlistQuoteRow } from "./types";
 
 const INITIAL_CANDLE_COUNT = 5000;
+/** Chart price-line ids for resting orders carry this prefix so a drag can be mapped back to an order. */
+const ORDER_LINE_PREFIX = "order-";
+const SQUARE_OFF_CHECK_MS = 30_000;
 
 const DEFAULT_WATCHLISTS: WatchlistDef[] = [
   { id: "my-stocks", name: "My Stocks", symbols: ["RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK"] },
@@ -36,12 +45,15 @@ export default function App() {
   const [activeWatchlistId, setActiveWatchlistId] = useState(DEFAULT_WATCHLISTS[0]!.id);
   const [quotes, setQuotes] = useState<Map<string, WatchlistQuoteRow>>(new Map());
   const [chart, setChart] = useState<ChartEngine | null>(null);
+  const auth = useAuth();
+  const { engine: paperEngine, snapshot: book, syncStatus, syncError, resetBook } = usePaperTrading(auth.token);
 
   const dataWorkerRef = useRef<DataWorkerClient | null>(null);
   const indicatorWorkerRef = useRef<IndicatorWorkerClient | null>(null);
   const perfHudRef = useRef<PerfHUDHandle>(null);
   const ohlcRef = useRef<OhlcReadoutHandle>(null);
   const lastBarTimeRef = useRef<number | null>(null);
+  const lastSquareOffDayRef = useRef<string | null>(null);
   const seededIndicatorIds = useRef<Set<string>>(new Set());
   const activeIndicatorsRef = useRef<ActiveIndicator[]>(activeIndicators);
   activeIndicatorsRef.current = activeIndicators;
@@ -102,7 +114,7 @@ export default function App() {
       if (series.length === 0) return;
       chart.setHistoryLoading(true);
       const oldestTime = series.time[0]!;
-      dataWorker.loadMore(symbol, timeframe, oldestTime - 1, 2000).then((batch) => {
+      dataWorker.loadMore(symbol, timeframe, oldestTime - 1, 2000, series.open[0]!).then((batch) => {
         chart.prependData(batch);
         chart.setHistoryLoading(false);
       });
@@ -117,6 +129,7 @@ export default function App() {
 
     const offTick = dataWorker.onTick((tickSymbol, tickTf, candle) => {
       if (tickSymbol !== symbol || tickTf !== timeframe) return;
+      paperEngine.onPrice(tickSymbol, candle.close);
       const isNewBar = candle.time !== lastBarTimeRef.current;
       if (isNewBar) {
         chart.pushBar(candle);
@@ -145,7 +158,7 @@ export default function App() {
       offTick();
       offOutputs();
     };
-  }, [chart, symbol, timeframe]);
+  }, [chart, symbol, timeframe, paperEngine]);
 
   useEffect(() => chart?.setTheme(themeName), [chart, themeName]);
   useEffect(() => chart?.setScaleMode(scaleMode), [chart, scaleMode]);
@@ -157,6 +170,72 @@ export default function App() {
     if (!chart) return;
     return chart.on("drawingToolDeactivated", () => setActiveDrawingTool(null));
   }, [chart]);
+
+  // Position entries and resting order levels, drawn on the chart for the
+  // charted symbol only.
+  useEffect(() => {
+    if (!chart) return;
+    const lines: PriceLine[] = [];
+
+    for (const position of book.positions) {
+      if (position.symbol !== symbol) continue;
+      const long = position.quantity > 0;
+      lines.push({
+        id: `position-${position.symbol}-${position.product}`,
+        price: position.averagePrice,
+        color: long ? "#26a69a" : "#ef5350",
+        label: `${long ? "LONG" : "SHORT"} ${Math.abs(position.quantity)}`,
+      });
+    }
+
+    for (const order of book.orders) {
+      if (order.symbol !== symbol) continue;
+      if (order.status !== "open" && order.status !== "triggered") continue;
+      const price = order.limitPrice ?? order.triggerPrice;
+      if (price === undefined) continue;
+      lines.push({
+        id: `${ORDER_LINE_PREFIX}${order.id}`,
+        price,
+        color: legColor(order),
+        label: orderLineLabel(order),
+        style: "dashed",
+        // Position lines are a record of a fill and cannot be moved; a resting
+        // order is just a price, so dragging it modifies the order.
+        draggable: true,
+      });
+    }
+
+    chart.setPriceLines(lines);
+  }, [chart, book, symbol]);
+
+  // Dragging a resting order's line on the chart modifies that order.
+  useEffect(() => {
+    if (!chart) return;
+    return chart.on("priceLineMoved", ({ id, price }) => {
+      if (!id.startsWith(ORDER_LINE_PREFIX)) return;
+      const orderId = id.slice(ORDER_LINE_PREFIX.length);
+      const order = paperEngine.getOrder(orderId);
+      if (!order) return;
+      const rounded = Math.round(price * 20) / 20; // NSE tick size is 5 paise.
+      // Which field a line represents depends on the order type: an SL-M has
+      // only a trigger, everything else rests on its limit price.
+      const changes = order.type === "SL-M" ? { triggerPrice: rounded } : { limitPrice: rounded };
+      paperEngine.modifyOrder(orderId, changes);
+    });
+  }, [chart, paperEngine]);
+
+  // Intraday (MIS) auto-square-off at the session close.
+  useEffect(() => {
+    function check() {
+      const now = Date.now();
+      if (!shouldSquareOffIntraday({ now, lastRunDayKey: lastSquareOffDayRef.current })) return;
+      lastSquareOffDayRef.current = istDayKey(now);
+      paperEngine.squareOffProduct("MIS");
+    }
+    check();
+    const interval = setInterval(check, SQUARE_OFF_CHECK_MS);
+    return () => clearInterval(interval);
+  }, [paperEngine]);
 
   // Keyboard shortcuts.
   useEffect(() => {
@@ -188,6 +267,9 @@ export default function App() {
       const rows = await Promise.all(
         symbols.map(async (sym) => {
           const q = await dataWorker.getQuote(sym);
+          // Symbols other than the charted one have no tick subscription, so the
+          // quote poll is what values their positions and matches their orders.
+          paperEngine.onPrice(sym, q.ltp, q.timestamp);
           const row: WatchlistQuoteRow = {
             symbol: sym,
             ltp: q.ltp,
@@ -211,7 +293,7 @@ export default function App() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [watchlists]);
+  }, [watchlists, paperEngine]);
 
   async function runBenchmark(count: number): Promise<BenchmarkResult> {
     if (!chart) throw new Error("Chart not ready");
@@ -291,18 +373,28 @@ export default function App() {
       />
 
       <div className="main-layout">
-        <div className="chart-area">
-          <ChartContainer
-            themeName={themeName}
-            symbol={symbol}
-            timeframe={timeframe}
-            onReady={setChart}
-            onDispose={() => setChart(null)}
-            onCrosshairBar={(bar: CandleSnapshot | null) => ohlcRef.current?.update(bar)}
-            onPerf={(perf) => perfHudRef.current?.update(perf)}
+        <div className="chart-column">
+          <div className="chart-area">
+            <ChartContainer
+              themeName={themeName}
+              symbol={symbol}
+              timeframe={timeframe}
+              onReady={setChart}
+              onDispose={() => setChart(null)}
+              onCrosshairBar={(bar: CandleSnapshot | null) => ohlcRef.current?.update(bar)}
+              onPerf={(perf) => perfHudRef.current?.update(perf)}
+            />
+            <OhlcReadout ref={ohlcRef} />
+            <PerfHUD ref={perfHudRef} />
+          </div>
+
+          <TradingDock
+            snapshot={book}
+            onClosePosition={(sym, product) => paperEngine.closePosition(sym, product)}
+            onCancelOrder={(orderId) => paperEngine.cancelOrder(orderId)}
+            onSquareOffAll={() => paperEngine.squareOffAll()}
+            onSelectSymbol={setSymbol}
           />
-          <OhlcReadout ref={ohlcRef} />
-          <PerfHUD ref={perfHudRef} />
         </div>
 
         <div className="side-panel">
@@ -317,10 +409,29 @@ export default function App() {
             onRemoveSymbol={handleRemoveSymbol}
             onReorder={handleReorderSymbol}
           />
+          <AccountPanel auth={auth} syncStatus={syncStatus} syncError={syncError} onResetBook={() => void resetBook()} />
+          <OrderTicket
+            symbol={symbol}
+            ltp={paperEngine.getLastPrice(symbol)}
+            availableBalance={book.account.availableBalance}
+            onPlace={(req) => paperEngine.placeOrder(req)}
+          />
           <IndicatorPanel active={activeIndicators} onAdd={handleAddIndicator} onRemove={handleRemoveIndicator} onToggle={handleToggleIndicator} />
           <BenchmarkPanel onRun={runBenchmark} />
         </div>
       </div>
     </div>
   );
+}
+
+function orderLineLabel(order: Order): string {
+  if (order.legType === "stop-loss") return "SL";
+  if (order.legType === "target") return "TARGET";
+  return `${order.side === "BUY" ? "B" : "S"} ${order.type}`;
+}
+
+function legColor(order: Order): string {
+  if (order.legType === "stop-loss") return "#ef5350";
+  if (order.legType === "target") return "#26a69a";
+  return order.side === "BUY" ? "#2962ff" : "#f0b90b";
 }

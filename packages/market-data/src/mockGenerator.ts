@@ -19,6 +19,28 @@ function mulberry32(seed: number): () => number {
   };
 }
 
+/**
+ * Standard-normal sample. Exported so the live tick simulator draws its steps
+ * the same way the historical series does.
+ */
+export function gaussianRandom(rng: () => number = Math.random): number {
+  return gaussian(rng);
+}
+
+/**
+ * Standard deviation of one step of `seconds` length, given a daily
+ * volatility. The historical generator and the live tick stream both scale
+ * through this, so a live bar cannot end up a different size from the
+ * historical bars beside it — they used to differ by ~22x, which flattened
+ * the whole history the moment live bars appeared.
+ */
+export function stepVolatility(dailyVolatility: number, seconds: number): number {
+  return dailyVolatility * Math.sqrt(Math.min(1, Math.max(0, seconds) / SEC_PER_DAY));
+}
+
+/** Daily volatility of the simulated market, as a fraction (0.015 = 1.5%/day). */
+export const DEFAULT_DAILY_VOLATILITY = 0.015;
+
 function gaussian(rng: () => number): number {
   // Box-Muller
   const u1 = Math.max(rng(), 1e-9);
@@ -35,6 +57,17 @@ function isTradingDay(dayIndex: number): boolean {
   return w >= 1 && w <= 5;
 }
 
+/**
+ * The canonical "current price" of a seed: the level every generated series
+ * for that seed is scaled to end at, and the price the mock provider quotes
+ * the symbol at. Without a single agreed level, the chart (which anchors to
+ * the end of its series) and the watchlist (which quotes the symbol directly)
+ * would disagree, and a resting order could fill against the gap between them.
+ */
+export function referencePriceForSeed(seed: number): number {
+  return 1000 + mulberry32(seed)() * 2000;
+}
+
 export interface MockSeriesOptions {
   seed?: number;
   startPrice?: number;
@@ -43,6 +76,13 @@ export interface MockSeriesOptions {
   baseVolume?: number;
   /** Series ends at this unix-second timestamp (defaults to "now"). */
   endTime?: number;
+  /**
+   * Rescale the finished series so its last close is exactly this price. The
+   * walk keeps its shape (every bar is multiplied by the same factor), which
+   * is what lets a 5m and a 1D series for one symbol agree on where the market
+   * is right now, and lets an older chunk be prepended without a seam.
+   */
+  endPrice?: number;
 }
 
 interface OhlcvStep {
@@ -80,13 +120,13 @@ function walkStep(prevClose: number, volPerStep: number, baseVolume: number, rng
 export function generateMockCandles(timeframe: Timeframe, count: number, options: MockSeriesOptions = {}): CandleBatch {
   const seed = options.seed ?? 42;
   const rng = mulberry32(seed);
-  const dailyVol = options.dailyVolatility ?? 0.015;
+  const dailyVol = options.dailyVolatility ?? DEFAULT_DAILY_VOLATILITY;
   const baseVolume = options.baseVolume ?? 50_000;
   const stepSec = TIMEFRAME_SECONDS[timeframe];
   const endTime = options.endTime ?? Math.floor(Date.now() / 1000);
 
   const timestamps = computeTimestamps(timeframe, count, endTime);
-  const volPerStep = dailyVol * Math.sqrt(Math.min(1, stepSec / SEC_PER_DAY)) || dailyVol;
+  const volPerStep = stepVolatility(dailyVol, stepSec) || dailyVol;
 
   const batch = createCandleBatch(count);
   let prevClose = options.startPrice ?? 1000 + rng() * 2000;
@@ -102,7 +142,23 @@ export function generateMockCandles(timeframe: Timeframe, count: number, options
     prevClose = step.close;
   }
 
+  if (options.endPrice !== undefined && count > 0) scaleToEndPrice(batch, options.endPrice);
+
   return batch;
+}
+
+/** Multiplies every price in the batch so the final close lands on `endPrice`. */
+function scaleToEndPrice(batch: CandleBatch, endPrice: number): void {
+  const lastClose = batch.close[batch.close.length - 1]!;
+  if (!(lastClose > 0) || !(endPrice > 0)) return;
+  const factor = endPrice / lastClose;
+  if (factor === 1) return;
+  for (let i = 0; i < batch.close.length; i++) {
+    batch.open[i] = batch.open[i]! * factor;
+    batch.high[i] = batch.high[i]! * factor;
+    batch.low[i] = batch.low[i]! * factor;
+    batch.close[i] = batch.close[i]! * factor;
+  }
 }
 
 /** Builds ascending unix-second timestamps for `count` buckets ending at `endTime`. */

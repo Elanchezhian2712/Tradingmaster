@@ -17,11 +17,12 @@ apps/web/                   React + Vite shell (UI only — no chart rendering)
 packages/chart-engine/      Imperative, framework-agnostic chart core
 packages/indicators/        Pure indicator math, runs on main thread or in a worker
 packages/market-data/       Provider-agnostic types + mock provider
+packages/paper-trading/     Simulated order book, positions and P&L (no I/O)
 services/api/               FastAPI: auth, watchlists, layouts, preferences
 docker-compose.yml          Postgres + Redis + API for local/prod-like runs
 ```
 
-`chart-engine`, `indicators` and `market-data` have no dependency on React,
+`chart-engine`, `indicators`, `market-data` and `paper-trading` have no dependency on React,
 Vite, or the DOM beyond what's strictly needed (a `<canvas>` and a
 `Worker`). They could be dropped into a Vue app, a Svelte app, or a plain
 script tag with no changes.
@@ -124,7 +125,36 @@ mock provider (or, later, a real vendor)
   -> DataWorkerClient (main thread, request/response + tick subscription)
   -> ChartEngine.pushBar / .updateLastBar   (renderer)
   -> IndicatorWorkerClient.onBar            (indicator worker, in parallel)
+  -> PaperTradingEngine.onPrice             (order matching + mark-to-market)
 ```
+
+Every mock series for a symbol is scaled to end at one canonical price
+(`referencePriceForSymbol`), so the chart, the watchlist quote poll and the
+paper book always agree on where that symbol is trading — whichever
+timeframe is charted. Without that, a quote poll could seed a symbol far
+from the charted price and fill a resting order at a price the market never
+traded at. The live tick walk scales through the same
+`stepVolatility(dailyVolatility, seconds)` helper as the generator, so a
+live bar is the same size as the historical bars beside it.
+
+## Paper trading
+
+`packages/paper-trading` is a plain class with no I/O: the app feeds it
+prices, it answers with orders, fills, positions and trades. Keeping fill
+semantics there — rather than in a React component — is what lets the same
+engine be driven later by a backtest (historical replay) or a strategy
+runner, and is why it is unit-testable to the rupee with an injected clock.
+See `docs/PAPER_TRADING.md`.
+
+React renders a *snapshot* of the book, refreshed on a 500ms beat for
+price-driven changes and immediately for anything that changes the book —
+so a tick per second per symbol never turns into a React render per tick.
+
+The chart stays ignorant of trading: `setPriceLines()` takes levels with a
+colour, a label and a `draggable` flag, and when one is dragged the engine
+emits `priceLineMoved` rather than acting on it. Mapping that back to "modify
+this order at this price" is the app's job, which keeps order semantics out
+of the renderer and keeps the renderer reusable for alert lines later.
 
 ## Panes, viewport and scales
 

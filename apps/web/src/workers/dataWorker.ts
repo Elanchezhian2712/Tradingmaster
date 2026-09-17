@@ -1,5 +1,5 @@
 /// <reference lib="webworker" />
-import { generateMockCandles, hashSeedFromSymbol, MockMarketDataProvider } from "@trading-master/market-data";
+import { generateMockCandles, hashSeedFromSymbol, MockMarketDataProvider, referencePriceForSymbol } from "@trading-master/market-data";
 import { DataWorkerRequest, DataWorkerResponse } from "./dataProtocol";
 
 const ctx = self as unknown as DedicatedWorkerGlobalScope;
@@ -18,7 +18,16 @@ ctx.onmessage = (event: MessageEvent<DataWorkerRequest>) => {
   switch (req.kind) {
     case "loadHistory": {
       const seed = hashSeedFromSymbol(req.symbol);
-      const batch = generateMockCandles(req.timeframe, req.count, { seed });
+      // Every timeframe for a symbol ends at the same canonical price, so
+      // switching timeframe does not teleport the market.
+      const batch = generateMockCandles(req.timeframe, req.count, {
+        seed,
+        endPrice: referencePriceForSymbol(req.symbol),
+      });
+      // Anchor the live stream to where this series ends, before the buffers are
+      // transferred (posting detaches them).
+      const lastClose = batch.close.length > 0 ? batch.close[batch.close.length - 1]! : undefined;
+      if (lastClose !== undefined) provider.setReferencePrice(req.symbol, lastClose);
       post(
         { kind: "history", requestId: req.requestId, batch },
         [batch.time.buffer, batch.open.buffer, batch.high.buffer, batch.low.buffer, batch.close.buffer, batch.volume.buffer]
@@ -27,7 +36,13 @@ ctx.onmessage = (event: MessageEvent<DataWorkerRequest>) => {
     }
     case "loadMore": {
       const seed = hashSeedFromSymbol(req.symbol);
-      const batch = generateMockCandles(req.timeframe, req.count, { seed, endTime: req.beforeTime });
+      // `endPrice` makes the older chunk finish where the loaded series begins,
+      // so a prepend joins without a price gap at the seam.
+      const batch = generateMockCandles(req.timeframe, req.count, {
+        seed,
+        endTime: req.beforeTime,
+        ...(req.endPrice !== undefined ? { endPrice: req.endPrice } : {}),
+      });
       post(
         { kind: "history", requestId: req.requestId, batch },
         [batch.time.buffer, batch.open.buffer, batch.high.buffer, batch.low.buffer, batch.close.buffer, batch.volume.buffer]

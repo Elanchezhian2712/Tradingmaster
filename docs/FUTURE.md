@@ -47,7 +47,30 @@ list.
   interface don't need to change to add these; they're new provider
   methods and new UI panels.
 
-## Scanner, alerts, strategies, backtesting, paper trading
+## Paper trading
+
+Built and tested client-side (`packages/paper-trading`,
+`docs/PAPER_TRADING.md`) — including bracket orders, intraday
+auto-square-off and drag-to-modify on the chart — with these gaps left
+deliberately:
+
+- **Server-side persistence.** The book lives in `localStorage`, so it is
+  per-browser: open the app on another device and the positions are not
+  there. The `paper_trades` table already matches the engine's `Trade`
+  shape, so this is a `POST /paper/trades` plus a load-on-login, not a
+  redesign. Not built here because the API changes could not be run
+  against Postgres in this environment, and an untested endpoint is worse
+  than a documented gap.
+- **Cover orders and trailing stops.** A bracket is a fixed stop and target;
+  the stop does not trail the price, and there is no cover-order product.
+- **Bracket legs on a resting entry cannot be edited before the entry
+  fills.** They live on the entry order until then; modifying the entry does
+  not re-validate them.
+
+Leverage is deliberately 1x on every product: real margin multipliers are
+broker-specific and would be invented numbers.
+
+## Scanner, alerts, strategies, backtesting
 
 Tables exist (`scanner_rules`, `alerts`, `strategies`, `backtests`,
 `paper_trades`); no engines or endpoints yet. Suggested build order, since
@@ -66,8 +89,10 @@ each reuses the one before it:
 4. **Backtest engine** — same evaluator, replayed over historical candles
    with position sizing, brokerage/slippage modeling, and trade-log/
    equity-curve/drawdown/win-rate output into `Backtest.results`.
-5. **Paper trading** — the backtest engine's entry/exit logic, driven by
-   live data instead of historical replay, writing to `paper_trades`.
+5. **Strategy-driven paper trading** — the backtest engine's entry/exit
+   logic driving `PaperTradingEngine` (which already exists and already has
+   the fill semantics) on live data instead of historical replay, writing
+   to `paper_trades`.
 
 Building the UI or API for any of these before the engine exists would
 mean an endpoint that writes rows nothing evaluates — deferred

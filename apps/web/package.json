@@ -14,6 +14,7 @@
     "@trading-master/chart-engine": "*",
     "@trading-master/indicators": "*",
     "@trading-master/market-data": "*",
+    "@trading-master/paper-trading": "*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

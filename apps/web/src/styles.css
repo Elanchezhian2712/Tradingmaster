@@ -99,10 +99,17 @@ input {
   min-height: 0;
 }
 
+.chart-column {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .chart-area {
   position: relative;
   flex: 1;
-  min-width: 0;
+  min-height: 0;
 }
 
 .chart-canvas-host {
@@ -322,4 +329,316 @@ input {
   opacity: 0.6;
   text-transform: uppercase;
   font-size: 10px;
+}
+
+/* ---- Order ticket ---- */
+.order-ticket {
+  padding: 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+.ticket-side {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.side-btn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  color: inherit;
+  border-radius: 4px;
+  padding: 5px 0;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.side-btn.buy.active {
+  background: #26a69a;
+  border-color: #26a69a;
+  color: #fff;
+}
+.side-btn.sell.active {
+  background: #ef5350;
+  border-color: #ef5350;
+  color: #fff;
+}
+.ticket-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.ticket-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+.ticket-grid label.disabled {
+  opacity: 0.35;
+}
+.ticket-grid input,
+.ticket-grid select {
+  width: 100%;
+}
+.ticket-ltp {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  opacity: 0.7;
+  justify-content: flex-end;
+}
+.ticket-ltp b {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  opacity: 1;
+}
+.ticket-bracket-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  opacity: 0.85;
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+.ticket-summary {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  opacity: 0.8;
+  padding: 1px 0;
+}
+.ticket-summary b {
+  font-variant-numeric: tabular-nums;
+}
+.place-btn {
+  width: 100%;
+  margin-top: 8px;
+  border: none;
+  border-radius: 4px;
+  padding: 7px 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+}
+.place-btn.buy {
+  background: #26a69a;
+}
+.place-btn.sell {
+  background: #ef5350;
+}
+.ticket-feedback {
+  margin-top: 6px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 3px;
+}
+.ticket-feedback.ok {
+  background: rgba(38, 166, 154, 0.18);
+  color: #26a69a;
+}
+.ticket-feedback.error {
+  background: rgba(239, 83, 80, 0.18);
+  color: #ef5350;
+}
+.ticket-note {
+  margin-top: 6px;
+  font-size: 10px;
+  opacity: 0.5;
+  line-height: 1.35;
+}
+
+/* ---- Trading dock ---- */
+.trading-dock {
+  border-top: 1px solid rgba(128, 128, 128, 0.2);
+  display: flex;
+  flex-direction: column;
+  height: 220px;
+  min-height: 34px;
+}
+.trading-dock.collapsed {
+  height: auto;
+}
+.dock-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 3px 8px;
+  flex-wrap: wrap;
+}
+.dock-tabs {
+  display: flex;
+  gap: 2px;
+}
+.dock-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: inherit;
+  opacity: 0.65;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.dock-tab.active {
+  opacity: 1;
+  border-bottom-color: #2962ff;
+}
+.dock-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dock-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 11px;
+}
+.dock-stat-label {
+  opacity: 0.6;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.dock-stat-value {
+  font-variant-numeric: tabular-nums;
+}
+.dock-body {
+  flex: 1;
+  overflow-y: auto;
+}
+.dock-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.dock-table th,
+.dock-table td {
+  text-align: right;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+.dock-table th:first-child,
+.dock-table td:first-child {
+  text-align: left;
+}
+.dock-table th:last-child,
+.dock-table td:last-child {
+  text-align: right;
+}
+.dock-table thead {
+  /* A concrete colour, not `inherit`: the table itself is transparent, so an
+     inherited background would let rows scroll visibly under the header. */
+  position: sticky;
+  top: 0;
+  opacity: 0.6;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.dock-table tbody tr {
+  cursor: pointer;
+}
+.dock-table tbody tr:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+.theme-dark .dock-table thead {
+  background: #0e1117;
+}
+.theme-light .dock-table thead {
+  background: #ffffff;
+}
+.dock-leg-tag {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 9px;
+  text-transform: uppercase;
+  background: rgba(128, 128, 128, 0.2);
+  opacity: 0.8;
+}
+.dock-symbol {
+  font-weight: 600;
+}
+.dock-empty {
+  padding: 14px 10px;
+  font-size: 12px;
+  opacity: 0.5;
+}
+.up {
+  color: #26a69a;
+}
+.down {
+  color: #ef5350;
+}
+.status-filled {
+  color: #26a69a;
+}
+.status-rejected {
+  color: #ef5350;
+}
+.status-cancelled {
+  opacity: 0.6;
+}
+.status-open,
+.status-triggered {
+  color: #2962ff;
+}
+
+/* ---- Account panel ---- */
+.account-panel {
+  padding: 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.account-email {
+  font-size: 12px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.account-form input {
+  width: 100%;
+}
+.account-actions {
+  display: flex;
+  gap: 6px;
+}
+.account-actions button {
+  flex: 1;
+}
+.sync-status {
+  font-size: 11px;
+  margin-bottom: 8px;
+  opacity: 0.75;
+}
+.sync-status.synced {
+  color: #26a69a;
+  opacity: 1;
+}
+.sync-status.error {
+  color: #ef5350;
+  opacity: 1;
+}
+.sync-error {
+  opacity: 0.8;
 }

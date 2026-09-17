@@ -47,9 +47,10 @@ export class DataWorkerClient {
     });
   }
 
-  loadMore(symbol: string, timeframe: Timeframe, beforeTime: number, count: number): Promise<CandleBatch> {
+  /** `endPrice` is the oldest loaded bar's open, so the older chunk joins it without a gap. */
+  loadMore(symbol: string, timeframe: Timeframe, beforeTime: number, count: number, endPrice?: number): Promise<CandleBatch> {
     const requestId = this.nextRequestId();
-    const req: DataWorkerRequest = { kind: "loadMore", requestId, symbol, timeframe, beforeTime, count };
+    const req: DataWorkerRequest = { kind: "loadMore", requestId, symbol, timeframe, beforeTime, count, endPrice };
     return new Promise((resolve) => {
       this.pending.set(requestId, (msg) => {
         if (msg.kind === "history") resolve(msg.batch);

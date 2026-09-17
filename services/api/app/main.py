@@ -10,7 +10,7 @@ from slowapi.util import get_remote_address
 from starlette.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.routers import auth, chart_layouts, health, preferences, watchlists
+from app.routers import auth, chart_layouts, health, paper, preferences, watchlists
 
 settings = get_settings()
 
@@ -54,3 +54,4 @@ app.include_router(auth.router)
 app.include_router(watchlists.router)
 app.include_router(chart_layouts.router)
 app.include_router(preferences.router)
+app.include_router(paper.router)
