@@ -1,0 +1,325 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: 13px;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.theme-dark {
+  background: #0e1117;
+  color: #c9d1d9;
+}
+.theme-light {
+  background: #ffffff;
+  color: #222222;
+}
+
+/* ---- Toolbar ---- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  gap: 12px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+  flex-wrap: wrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.symbol-badge {
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: rgba(128, 128, 128, 0.15);
+  margin-right: 6px;
+}
+
+.tf-btn,
+.icon-btn {
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  color: inherit;
+  border-radius: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tf-btn:hover,
+.icon-btn:hover {
+  background: rgba(128, 128, 128, 0.15);
+}
+.tf-btn.active,
+.icon-btn.active {
+  background: #2962ff;
+  border-color: #2962ff;
+  color: white;
+}
+.icon-btn.small {
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+select,
+input {
+  background: transparent;
+  color: inherit;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+/* ---- Layout ---- */
+.main-layout {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.chart-area {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.chart-canvas-host {
+  /* ChartEngine sets position:relative on this element itself (it anchors its
+     own absolutely-positioned canvases inside it), so sizing has to come from
+     width/height rather than position:absolute+inset here. */
+  width: 100%;
+  height: 100%;
+}
+
+.side-panel {
+  width: 300px;
+  min-width: 260px;
+  border-left: 1px solid rgba(128, 128, 128, 0.2);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+/* ---- OHLC readout ---- */
+.ohlc-readout {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 5;
+  display: flex;
+  gap: 10px;
+  padding: 4px 10px;
+  background: rgba(20, 24, 32, 0.55);
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+}
+.theme-light .ohlc-readout {
+  background: rgba(255, 255, 255, 0.75);
+}
+.ohlc-item.up b {
+  color: #26a69a;
+}
+.ohlc-item.down b {
+  color: #ef5350;
+}
+
+/* ---- Perf HUD ---- */
+.perf-hud {
+  position: absolute;
+  top: 8px;
+  right: 76px;
+  z-index: 5;
+  background: rgba(20, 24, 32, 0.55);
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 11px;
+  min-width: 130px;
+  pointer-events: none;
+}
+.theme-light .perf-hud {
+  background: rgba(255, 255, 255, 0.8);
+}
+.perf-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+.perf-label {
+  opacity: 0.65;
+}
+.perf-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* ---- Watchlist ---- */
+.watchlist {
+  padding: 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+.panel-title {
+  font-weight: 700;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  margin: 4px 0 8px;
+}
+.watchlist-tabs {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.wl-tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: inherit;
+  opacity: 0.65;
+  padding: 4px 6px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.wl-tab.active {
+  opacity: 1;
+  border-bottom-color: #2962ff;
+}
+.watchlist-search input {
+  width: 100%;
+  margin-bottom: 6px;
+}
+.watchlist-header,
+.wl-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 2px;
+}
+.watchlist-header {
+  font-size: 10px;
+  opacity: 0.6;
+  text-transform: uppercase;
+}
+.watchlist-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.wl-row {
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.wl-row:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+.wl-row.selected {
+  background: rgba(41, 98, 255, 0.18);
+}
+.wl-change.up {
+  color: #26a69a;
+}
+.wl-change.down {
+  color: #ef5350;
+}
+.wl-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+}
+.wl-row:hover .wl-actions {
+  opacity: 1;
+}
+.wl-actions button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+/* ---- Indicator panel ---- */
+.indicator-panel {
+  padding: 8px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.2);
+}
+.indicator-add-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.indicator-add-row select {
+  flex: 1;
+}
+.indicator-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.indicator-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 3px 0;
+  font-size: 12px;
+}
+.indicator-empty {
+  opacity: 0.5;
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+/* ---- Benchmark panel ---- */
+.benchmark-panel {
+  padding: 8px;
+}
+.benchmark-actions {
+  margin-bottom: 8px;
+}
+.benchmark-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.benchmark-table th,
+.benchmark-table td {
+  text-align: right;
+  padding: 3px 4px;
+}
+.benchmark-table th:first-child,
+.benchmark-table td:first-child {
+  text-align: left;
+}
+.benchmark-table thead {
+  opacity: 0.6;
+  text-transform: uppercase;
+  font-size: 10px;
+}
