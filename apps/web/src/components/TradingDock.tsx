@@ -10,11 +10,30 @@ export interface TradingDockProps {
   onCancelOrder: (orderId: string) => void;
   onSquareOffAll: () => void;
   onSelectSymbol: (symbol: string) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: (collapsed: boolean) => void;
+  maximized?: boolean;
+  onToggleMaximize?: () => void;
+  onClose?: () => void;
 }
 
 export function TradingDock(props: TradingDockProps) {
   const [tab, setTab] = useState<DockTab>("positions");
-  const [collapsed, setCollapsed] = useState(false);
+  const [localCollapsed, setLocalCollapsed] = useState(false);
+  const collapsed = props.collapsed !== undefined ? props.collapsed : localCollapsed;
+
+  function toggleCollapse() {
+    const next = !collapsed;
+    setLocalCollapsed(next);
+    props.onToggleCollapse?.(next);
+  }
+
+  function handleTabSelect(newTab: DockTab) {
+    setTab(newTab);
+    setLocalCollapsed(false);
+    props.onToggleCollapse?.(false);
+  }
+
   const { positions, orders, trades, account } = props.snapshot;
   const openOrders = orders.filter((o) => o.status === "open" || o.status === "triggered");
   const dayPnl = account.realizedPnl + account.unrealizedPnl;
@@ -23,9 +42,9 @@ export function TradingDock(props: TradingDockProps) {
     <div className={collapsed ? "trading-dock collapsed" : "trading-dock"}>
       <div className="dock-bar">
         <div className="dock-tabs">
-          <DockTabButton label={`Positions (${positions.length})`} active={tab === "positions"} onClick={() => (setTab("positions"), setCollapsed(false))} />
-          <DockTabButton label={`Orders (${openOrders.length})`} active={tab === "orders"} onClick={() => (setTab("orders"), setCollapsed(false))} />
-          <DockTabButton label={`Trades (${trades.length})`} active={tab === "trades"} onClick={() => (setTab("trades"), setCollapsed(false))} />
+          <DockTabButton label={`Positions (${positions.length})`} active={tab === "positions"} onClick={() => handleTabSelect("positions")} />
+          <DockTabButton label={`Orders (${openOrders.length})`} active={tab === "orders"} onClick={() => handleTabSelect("orders")} />
+          <DockTabButton label={`Trades (${trades.length})`} active={tab === "trades"} onClick={() => handleTabSelect("trades")} />
         </div>
 
         <div className="dock-summary">
@@ -34,12 +53,32 @@ export function TradingDock(props: TradingDockProps) {
           <Stat label="Unrealised" value={money(account.unrealizedPnl)} tone={tone(account.unrealizedPnl)} />
           <Stat label="Available" value={money(account.availableBalance)} />
           <Stat label="Equity" value={money(account.equity)} />
-          <button className="icon-btn small" onClick={props.onSquareOffAll} disabled={positions.length === 0 && openOrders.length === 0}>
+          <button className="tv-dock-action-btn" onClick={props.onSquareOffAll} disabled={positions.length === 0 && openOrders.length === 0}>
             Square off all
           </button>
-          <button className="icon-btn small" onClick={() => setCollapsed((c) => !c)} aria-label="Toggle panel">
+          {props.onToggleMaximize && (
+            <button
+              className="tv-dock-icon-btn"
+              onClick={props.onToggleMaximize}
+              title={props.maximized ? "Restore Height" : "Maximize Panel"}
+              aria-label="Maximize panel"
+            >
+              {props.maximized ? "🗗" : "🗖"}
+            </button>
+          )}
+          <button
+            className="tv-dock-icon-btn tv-dock-toggle-btn"
+            onClick={toggleCollapse}
+            aria-label="Toggle panel"
+            title={collapsed ? "Expand Panel (▲)" : "Collapse Panel (▼)"}
+          >
             {collapsed ? "▲" : "▼"}
           </button>
+          {props.onClose && (
+            <button className="tv-dock-icon-btn tv-dock-close-btn" onClick={props.onClose} title="Close Panel" aria-label="Close panel">
+              ✕
+            </button>
+          )}
         </div>
       </div>
 

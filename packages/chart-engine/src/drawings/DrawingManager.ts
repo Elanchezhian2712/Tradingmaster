@@ -47,6 +47,12 @@ export class DrawingManager {
     this.drawings.clear();
   }
 
+  setAllLocked(locked: boolean): void {
+    for (const [id, d] of this.drawings.entries()) {
+      this.drawings.set(id, { ...d, locked });
+    }
+  }
+
   /** Finds the drawing nearest a pixel point, within tolerance, for selection/dragging. */
   findNearest(pixelX: number, pixelY: number, viewport: Viewport): string | null {
     let bestId: string | null = null;

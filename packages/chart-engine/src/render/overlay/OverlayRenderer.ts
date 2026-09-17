@@ -48,6 +48,7 @@ export interface OverlayRenderParams {
   crosshair: CrosshairState | null;
   drawings: DrawingObject[];
   activeDrawingPreview: DrawingObject | null;
+  hideDrawings?: boolean;
 }
 
 const PRICE_GRID_LINES = 5;
@@ -80,8 +81,10 @@ export class OverlayRenderer {
     this.drawPanesGridAndAxes(p, plotWidth, plotHeight);
     this.drawIndicatorLines(p);
     this.drawPriceLines(p, plotWidth);
-    for (const d of p.drawings) renderDrawing(ctx, d, p.viewport, p.theme);
-    if (p.activeDrawingPreview) renderDrawing(ctx, p.activeDrawingPreview, p.viewport, p.theme);
+    if (!p.hideDrawings) {
+      for (const d of p.drawings) renderDrawing(ctx, d, p.viewport, p.theme);
+      if (p.activeDrawingPreview) renderDrawing(ctx, p.activeDrawingPreview, p.viewport, p.theme);
+    }
     if (p.crosshair) this.drawCrosshairLines(p, plotWidth, plotHeight);
 
     // Axis gutter backgrounds, painted over the plot content edge.

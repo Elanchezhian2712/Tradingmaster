@@ -78,6 +78,11 @@ export class ChartEngine {
   private armedDrawingColor = "#f0b90b";
   private drawingDragActive = false;
   private dragStartPoint: DrawingPoint | null = null;
+  private magnetMode = false;
+  private stayInDrawingMode = false;
+  private lockAllDrawings = false;
+  private hideDrawings = false;
+  private cursorMode: "crosshair" | "dot" | "arrow" | "eraser" = "crosshair";
 
   private dirty = true;
   private historyLoading = false;
@@ -123,13 +128,23 @@ export class ChartEngine {
 
     this.interaction = new InteractionController(container, {
       onDragStart: (x, y) => {
+        if (this.cursorMode === "eraser") {
+          const nearestId = this.drawingManager.findNearest(x, y, this.viewport);
+          if (nearestId) {
+            this.removeDrawing(nearestId);
+          }
+          return;
+        }
         const hit = this.draggablePriceLineAt(x, y);
         if (!this.armedDrawingType && hit) {
           this.draggedPriceLineId = hit.id;
           return;
         }
         if (this.armedDrawingType) {
-          this.dragStartPoint = { index: this.viewport.xToIndex(x), price: this.viewport.yToPrice(y, "main") };
+          const rawIdx = this.viewport.xToIndex(x);
+          const rawPrice = this.viewport.yToPrice(y, "main");
+          const pt = this.magnetMode ? this.snapToCandleOhlc(rawIdx, rawPrice) : { index: rawIdx, price: rawPrice };
+          this.dragStartPoint = pt;
           this.drawingDragActive = true;
         }
       },
@@ -350,25 +365,94 @@ export class ChartEngine {
     this.requestRender();
   }
 
+  private snapToCandleOhlc(index: number, rawPrice: number): { index: number; price: number } {
+    const bar = this.store.barAt(Math.round(index));
+    if (!bar) return { index, price: rawPrice };
+    const candidates = [bar.open, bar.high, bar.low, bar.close];
+    let closest = candidates[0]!;
+    let minDist = Math.abs(rawPrice - closest);
+    for (let i = 1; i < candidates.length; i++) {
+      const dist = Math.abs(rawPrice - candidates[i]!);
+      if (dist < minDist) {
+        minDist = dist;
+        closest = candidates[i]!;
+      }
+    }
+    return { index: Math.round(index), price: closest };
+  }
+
   /**
    * Adds one point to the drawing currently being placed. Called once per
    * plain click, or twice in a row (start + end) when the user instead
    * presses, drags, and releases in one motion — see ChartEngine's
    * `onDragEnd` wiring in the constructor.
    */
-  private addDrawingPoint(index: number, price: number): void {
+  private addDrawingPoint(rawIndex: number, rawPrice: number): void {
     if (!this.armedDrawingType) return;
-    this.armedDrawingPoints.push({ index, price });
+    const pt = this.magnetMode ? this.snapToCandleOhlc(rawIndex, rawPrice) : { index: rawIndex, price: rawPrice };
+    this.armedDrawingPoints.push(pt);
 
     const required = POINTS_REQUIRED[this.armedDrawingType];
     if (this.armedDrawingPoints.length >= required) {
-      const text = this.armedDrawingType === "text" ? window.prompt("Label text:") ?? "" : undefined;
+      const text = this.armedDrawingType === "text" || this.armedDrawingType === "callout" ? window.prompt("Label text:") ?? "" : undefined;
       this.drawingManager.add(this.armedDrawingType, this.armedDrawingPoints, this.armedDrawingColor, 1.5, text);
-      this.armedDrawingType = null;
+      if (!this.stayInDrawingMode) {
+        this.armedDrawingType = null;
+        this.emit("drawingToolDeactivated", undefined);
+      }
       this.armedDrawingPoints = [];
       this.emit("drawingsChanged", this.drawingManager.list());
-      this.emit("drawingToolDeactivated", undefined);
     }
+  }
+
+  setMagnetMode(enabled: boolean): void {
+    this.magnetMode = enabled;
+  }
+
+  isMagnetMode(): boolean {
+    return this.magnetMode;
+  }
+
+  setStayInDrawingMode(enabled: boolean): void {
+    this.stayInDrawingMode = enabled;
+  }
+
+  isStayInDrawingMode(): boolean {
+    return this.stayInDrawingMode;
+  }
+
+  setLockAllDrawings(locked: boolean): void {
+    this.lockAllDrawings = locked;
+    this.drawingManager.setAllLocked(locked);
+    this.requestRender();
+  }
+
+  isLockAllDrawings(): boolean {
+    return this.lockAllDrawings;
+  }
+
+  setHideDrawings(hidden: boolean): void {
+    this.hideDrawings = hidden;
+    this.requestRender();
+  }
+
+  isHideDrawings(): boolean {
+    return this.hideDrawings;
+  }
+
+  setCursorMode(mode: "crosshair" | "dot" | "arrow" | "eraser"): void {
+    this.cursorMode = mode;
+    if (mode === "eraser") {
+      this.container.style.cursor = "crosshair";
+    } else if (mode === "arrow") {
+      this.container.style.cursor = "default";
+    } else {
+      this.container.style.cursor = "crosshair";
+    }
+  }
+
+  getCursorMode(): "crosshair" | "dot" | "arrow" | "eraser" {
+    return this.cursorMode;
   }
 
   /** Live "rubber band" preview from the armed drawing's committed points through the current cursor position. */
@@ -496,6 +580,7 @@ export class ChartEngine {
       crosshair: this.crosshair,
       drawings: this.drawingManager.list(),
       activeDrawingPreview: this.buildDrawingPreview(),
+      hideDrawings: this.hideDrawings,
     });
 
     const renderTime = performance.now() - t0;
